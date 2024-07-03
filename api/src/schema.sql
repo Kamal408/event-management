@@ -1,0 +1,21 @@
+DROP TABLE IF EXISTS user;
+DROP TABLE IF EXISTS event;
+
+CREATE TABLE user (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT UNIQUE NOT NULL,
+  timezone TEXT NULL,
+  token TEXT NULL
+);
+
+CREATE TABLE event (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  author_id INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  start_date_time INTEGER NOT NULL,
+  end_date_time INTEGER NOT NULL, 
+  description TEXT NULL,
+  participants TEXT NULL,
+  created INTEGER NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (author_id) REFERENCES user (id)
+);
