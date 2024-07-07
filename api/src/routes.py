@@ -1,192 +1,167 @@
-import secrets
-from src.db import get_db
-from flask import jsonify, request, session
-from flask_httpauth import HTTPTokenAuth
+from app import app, db
+from flask import jsonify, request
+from models import Event
+from datetime import datetime
+from validate import (
+    isValidDateTimeFormat,
+    isValidDateFormat,
+    getStartAndEndDateForMonth,
+)
 
-def init_route(app):
-    auth = HTTPTokenAuth()
-    @auth.verify_token
-    def verify_token(token):
-        db = get_db()
-        query = "SELECT * FROM user WHERE token = ?"
-        user = db.execute(query, (token,)).fetchone()
-        return user
+@app.route("/api/events", methods=["GET"])
+def get_events():
 
-    @app.route("/auth/login", methods=["POST"])
-    def login():
-        db = get_db()
-        data = request.json
-        email = data.get("email")
-        #validate
-        query = "SELECT id FROM user WHERE email = ?"
-        user = db.execute(query, (email,)).fetchone()
-        token = secrets.token_urlsafe(16)
-        if user:
-            query = "UPDATE user SET token = ? WHERE id=?"
-            db.execute(
-                query,
-                (token, user["id"])
-            )
-            db.commit()
+    query = Event.query
+
+    if request.args.get("date") and isValidDateFormat(request.args.get("date")):
+        start, end = getStartAndEndDateForMonth(request.args.get("date"))
+        query = query.filter(Event.start_date_time.between(start, end))
+
+    events = query.all()
+
+    results = {}
+    for event in events:
+        # start_date = datetime.fromtimestamp(event.start_date_time).strftime(app.config["APP_DATE_FORMAT"])
+        start_date = event.start_date_time.strftime(app.config["APP_DATE_FORMAT"])
+        # start_date = datetime.strptime(event.start_date_time, app.config["APP_DATE_TIME_FORMAT"]).strftime(app.config["APP_DATE_FORMAT"])
+
+        if start_date in results:
+            results[start_date].append(event.get_json())
         else:
-            timezone = 'Asia/Katmandu'
-            query = "INSERT INTO user (email, timezone, token) VALUES (?, ?, ?)"
-            db.execute(
-                query,
-                (email, timezone, token)
+            results[start_date] = [event.get_json()]
+
+    return jsonify(results)
+
+
+@app.route("/api/events/<int:id>", methods=["GET"])
+def get_event(id):
+    event = Event.query.get(id)
+
+    if event is None:
+        return jsonify({"message": "Not found"}), 404
+
+    return jsonify(event.get_json())
+
+
+@app.route("/api/events", methods=["POST"])
+def create_event():
+
+    try:
+        data = request.json
+
+        error = []
+
+        for field in ["title", "startDateTime", "endDateTime", "participants"]:
+            if field not in data:
+                error.append(f"{field} is required")
+
+            elif field == "startDateTime" or field == "endDateTime":
+                if not isValidDateTimeFormat(data.get(field)):
+                    error.append(f"{field} format is YYYY/MM/DD HH:MM:SS")
+
+        if len(error) > 0:
+            return jsonify({"message": error}), 400
+
+        start_date_time = datetime.strptime(
+            data.get("startDateTime"), app.config["APP_DATE_TIME_FORMAT"]
+        )
+        end_date_time = datetime.strptime(
+            data.get("endDateTime"), app.config["APP_DATE_TIME_FORMAT"]
+        )
+
+        if end_date_time < start_date_time:
+            return (
+                jsonify({"message": "Start should be greater than End date time"}),
+                400,
             )
-            db.commit()
-        
-        return {
-            "token": token
-        }
 
-    # Events
-    @app.route("/api/events", methods=["GET"])
-    @auth.login_required
-    def get_events():
-        db = get_db()
-        user = auth.current_user()
-        query = "SELECT * FROM event WHERE author_id = ?"
-        res = db.execute(query, (user["id"],))
-        lists = []
-        for item in res.fetchall():   
-            lists.append({
-                "id": item["id"],
-                "author_id": item["author_id"],
-                "title": item["title"],
-                "start_date_time": item["start_date_time"],
-                "end_date_time": item["end_date_time"],
-                "description": item["description"],
-                "participants": item["participants"],
-                "created": item["created"]
-            })
-        return jsonify(lists)
+        title = data.get("title")
+        description = data.get("description")
+        participants = data.get("participants")
 
-    @app.route("/api/events", methods=["POST"])
-    @auth.login_required
-    def create_event():
-        db = get_db()
-        user = auth.current_user()
-        try:
-            data = request.json
+        event = Event(
+            title=title,
+            start_date_time=start_date_time,
+            end_date_time=end_date_time,
+            description=description,
+            participants=participants,
+        )
+        db.session.add(event)
+        db.session.commit()
 
-            title = data.get("title")
-            start_date_time = data.get("start_date_time") # convert to timestamp from string
-            end_date_time = data.get("end_date_time")
-            description = data.get("description")
-            participants = data.get("participants")
+        return jsonify(event.get_json())
 
-            # todo: validate
-            query = "INSERT INTO event (author_id, title, start_date_time, end_date_time, description, participants) VALUES (?, ?, ?, ?, ?, ?)"
-            db.execute(
-                query,
-                (user["id"], title, start_date_time, end_date_time, description, participants)
+    except Exception as e:
+        db.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/events/<int:id>", methods=["PUT"])
+def udpate_event(id):
+    try:
+        event = Event.query.get(id)
+
+        if event is None:
+            return jsonify({"error": "Not found"}), 404
+
+        data = request.json
+
+        event.title = data.get("title", event.title)
+        event.description = data.get("description", event.description)
+        event.participants = data.get("participants", event.participants)
+
+        if data.get("startDateTime"):
+            event.start_date_time = datetime.strptime(
+                data.get("startDateTime"), app.config["APP_DATE_TIME_FORMAT"]
             )
-            db.commit()
 
-            return jsonify({
-                "message": "Event created."
-            })
+        if data.get("endDateTime"):
+            event.end_date_time = datetime.strptime(
+                data.get("endDateTime"), app.config["APP_DATE_TIME_FORMAT"]
+            )
 
-        except Exception as e:
-            db.rollback()
-            return jsonify({
-                "error": str(e)
-            }), 500
+        error = []
+        if not isValidDateTimeFormat(event.start_date_time):
+            error.append(f"startDateTime format is YYYY/MM/DD HH:MM:SS")
 
-    @app.route("/api/events/<int:id>", methods=['GET'])
-    @auth.login_required
-    def get_event(id):
-        db = get_db()
-        user = auth.current_user()
+        if not isValidDateTimeFormat(event.end_date_time):
+            error.append(f"endDateTime format is YYYY/MM/DD HH:MM:SS")
 
-        query = "SELECT * FROM event WHERE author_id = ? and id = ?"
-        item = db.execute(query, (user["id"], id)).fetchone()
+        if len(error) > 0:
+            return jsonify({"message": error}), 400
 
-        if item:
-            return jsonify({
-                "id": item["id"],
-                "author_id": item["author_id"],
-                "title": item["title"],
-                "start_date_time": item["start_date_time"],
-                "end_date_time": item["end_date_time"],
-                "description": item["description"],
-                "participants": item["participants"],
-                "created": item["created"]
-            })
-        
-        return jsonify({
-            "error": "Not found"
-        }), 404
-    
-    @app.route("/api/events/<int:id>", methods=['PUT'])
-    @auth.login_required
-    def udpate_event(id):
-        db = get_db()
-        user = auth.current_user()
+        if event.end_date_time < event.start_date_time:
+            return (
+                jsonify({"message": "Start should be greater than End date time"}),
+                400,
+            )
 
-        try:
-            query = "SELECT * FROM event WHERE author_id = ? and id = ?"
-            item = db.execute(query, (user["id"], id)).fetchone()
+        db.session.commit()
 
-            if item:
-                data = request.json
+        return jsonify(event.get_json())
 
-                title = data.get("title")
-                start_date_time = data.get("start_date_time") # convert to timestamp from string
-                end_date_time = data.get("end_date_time")
-                description = data.get("description")
-                participants = data.get("participants")
+    except Exception as e:
+        db.rollback()
+        return jsonify({"error": str(e)}), 500
 
-                #validate 
 
-                update_query = "UPDATE event SET title = ?, start_date_time = ?, end_date_time = ?, description = ?, participants = ? WHERE id = ?"
-                db.execute(update_query, (title, start_date_time, end_date_time, description, participants, id))
-                db.commit()
+@app.route("/api/events/<int:id>", methods=["DELETE"])
+def delete_event(id):
+    try:
+        event = Event.query.get(id)
+        if event is None:
+            return jsonify({"message": "Not found"}), 404
 
-                return jsonify({
-                    "message": "Event updated."
-                })
-            
-            return jsonify({
-                "error": "Not found"
-            }), 404
-        
-        except Exception as e:
-            db.rollback()
-            return jsonify({
-                "error": str(e)
-            }), 500
-    
-    @app.route("/api/events/<int:id>", methods=['DELETE'])
-    @auth.login_required
-    def delete_event(id):
-        db = get_db()
-        user = auth.current_user()
-        try:
-            query = "SELECT * FROM event WHERE author_id = ? and id = ?"
-            item = db.execute(query, (user["id"], id)).fetchone()
+        db.session.delete(event)
+        db.session.commit()
 
-            if item:
-                update_query = "DELETE FROM event WHERE id = ?"
-                db.execute(update_query, (id,))
-                db.commit()
+        return jsonify({"message": "Event deleted."})
 
-                return jsonify({
-                    "message": "Event deleted."
-                })
-            
-            return jsonify({
-                "error": "Not found"
-            }), 404
-        
-        except Exception as e:
-            db.rollback()
-            return jsonify({
-                "error": str(e)
-            }), 500
+    except Exception as e:
+        db.rollback()
+        return jsonify({"message": str(e)}), 500
 
-    @app.errorhandler(404)
-    def not_found(error):
-        return jsonify({'error': 'Not found'}), 404
+
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({"message": "Not found"}), 404
