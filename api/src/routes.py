@@ -1,7 +1,9 @@
-from app import app, db
+import requests
+from app import app, db, scheduler
 from flask import jsonify, request
 from models import Event
-from datetime import datetime
+from sqlalchemy import or_
+from datetime import datetime, timezone, timedelta
 from validate import (
     isValidDateTimeFormat,
     isValidDateFormat,
@@ -21,9 +23,7 @@ def get_events():
 
     results = {}
     for event in events:
-        # start_date = datetime.fromtimestamp(event.start_date_time).strftime(app.config["APP_DATE_FORMAT"])
         start_date = event.start_date_time.strftime(app.config["APP_DATE_FORMAT"])
-        # start_date = datetime.strptime(event.start_date_time, app.config["APP_DATE_TIME_FORMAT"]).strftime(app.config["APP_DATE_FORMAT"])
 
         if start_date in results:
             results[start_date].append(event.get_json())
@@ -97,7 +97,7 @@ def create_event():
 
 
 @app.route("/api/events/<int:id>", methods=["PUT"])
-def udpate_event(id):
+def update_event(id):
     try:
         event = Event.query.get(id)
 
@@ -161,6 +161,38 @@ def delete_event(id):
         db.rollback()
         return jsonify({"message": str(e)}), 500
 
+@scheduler.task('interval', id='notify_user', seconds=10)
+def notify_user():
+    app.logger.info(f"Notification Start")
+    try:
+        notification_time = datetime.now(timezone.utc) + timedelta(minutes=30)
+        with scheduler.app.app_context():
+            events = Event.query.filter(Event.start_date_time < notification_time, Event.last_notified==None).all()
+
+            for event in events:
+                if(event.participants):
+                    eventDict = event.get_json()
+                    response = requests.post(
+                        "https://api.mailgun.net/v3/notification.sofonandkalaguthi.org/messages",
+                        auth=("api", "ab9be91b5f41eacd0f4c5aee90168bf8-623e10c8-88d2b058"),
+                        data={
+                            "from": "Event Managment <mailgun@notification.sofonandkalaguthi.org>",
+                            "to": event.participants.split(','),
+                            "subject": event.title,
+                            "text": f"{event.description} \n Start Time: {eventDict['startDateTime']} (UTC) \n End Time: {eventDict['endDateTime']} (UTC)",
+                        },
+                    )
+
+                if response.status_code == 200:
+                    event.last_notified = datetime.now(timezone.utc)
+                    db.session.commit()
+                    app.logger.info(f"Notification Sent for event {event.id}")
+            
+            app.logger.info(f"Notification End")
+
+    except Exception as e:
+        db.rollback()
+        app.logger.error(f"Notification Sent for event {event.id}")
 
 @app.errorhandler(404)
 def not_found(error):
