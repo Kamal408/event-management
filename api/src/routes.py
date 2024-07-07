@@ -74,6 +74,16 @@ def create_event():
                 jsonify({"message": "Start should be greater than End date time"}),
                 400,
             )
+        
+        conflicted_events = Event.query.filter(
+            or_(Event.start_date_time.between(start_date_time, end_date_time), Event.end_date_time.between(start_date_time, end_date_time))
+        ).all()
+
+        if len(conflicted_events) > 0:
+            return (
+                jsonify({"message": "Scheduled time is in conflict with previous events"}),
+                400,
+            )
 
         title = data.get("title")
         description = data.get("description")
@@ -174,7 +184,7 @@ def notify_user():
                     eventDict = event.get_json()
                     response = requests.post(
                         "https://api.mailgun.net/v3/notification.sofonandkalaguthi.org/messages",
-                        auth=("api", "ab9be91b5f41eacd0f4c5aee90168bf8-623e10c8-88d2b058"),
+                        auth=("api", app.config["MAILGUN_API_KEY"]),
                         data={
                             "from": "Event Managment <mailgun@notification.sofonandkalaguthi.org>",
                             "to": event.participants.split(','),
