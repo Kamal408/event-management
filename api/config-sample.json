@@ -1,0 +1,8 @@
+{
+    "SQLALCHEMY_DATABASE_URI": "sqlite:///events.db",
+    "SQLALCHEMY_TRACK_MODIFICATION": false,
+    "APP_DATE_TIME_FORMAT": "%Y-%m-%d %H:%M:%S",
+    "APP_DATE_FORMAT": "%Y-%m-%d",
+    "MAILGUN_API_KEY": "{MAILGUN_API}",
+    "NINJAS_API_KEY": "{NINJAS_API}"
+}

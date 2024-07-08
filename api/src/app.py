@@ -8,10 +8,8 @@ scheduler = APScheduler()
 
 CORS(app)
 
-app.config['SQLALCHEMY_DATABASE_URI']='sqlite:///events.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATION'] = False
-app.config['APP_DATE_TIME_FORMAT'] = '%Y-%m-%d %H:%M:%S'
-app.config['APP_DATE_FORMAT'] = '%Y-%m-%d'
+import json
+app.config.from_file("../config.json", load=json.load)
 
 db = SQLAlchemy(app)
 

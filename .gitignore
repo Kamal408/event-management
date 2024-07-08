@@ -5,3 +5,17 @@
 __pycache__/
 
 instance/
+
+
+node_modules
+*.log
+
+dist
+
+.vit
+
+stats.html
+
+.eslintcache
+
+config.json
