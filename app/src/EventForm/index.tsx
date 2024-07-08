@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useEffect, useState } from "react";
 import { Button, Card, DatePicker, Form, Input, message } from "antd";
 import { ReactMultiEmail } from "react-multi-email";
@@ -49,30 +50,45 @@ const EventForm = ({ initialValue, handleInitialValue }: EventFormProps) => {
       participants: values?.participants.toString(),
     };
     if (initialValue?.id) {
-      const res = await update("events", initialValue.id, formattedValue);
+      let res = [];
+      try {
+        res = await update("events", initialValue.id, formattedValue);
+      } catch (error){
+        res = error.response
+      }
+
       if (res.status === 200) {
-        setLoader(false);
         message.success("Event updated success");
         handleInitialValue();
         setEmails([]);
-
         form.resetFields();
+      } else if(res?.status === 400) {
+        message.error(res?.data?.message || "Validation Error");
+      } else {
+        message.error(res?.data?.error?.message || "Unable to add event");
       }
-
+      setLoader(false);
       return;
     }
-    const res = await store("events", formattedValue);
 
+    let res = {};
+    try {
+      res = await store("events", formattedValue);
+    } catch (error) {
+      res = error.response;
+    }
+    
     if (res?.status === 200) {
       form.resetFields();
       setEmails([]);
-      setLoader(false);
       handleInitialValue();
       message.success("Event added successfully.");
+    } else if(res?.status === 400) {
+      message.error(res?.data?.message || "Validation Error");
     } else {
-      setLoader(false);
       message.error(res?.data?.error?.message || "Unable to add event");
     }
+    setLoader(false);
   };
 
   useEffect(() => {

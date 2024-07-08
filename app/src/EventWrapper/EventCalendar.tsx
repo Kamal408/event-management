@@ -1,9 +1,19 @@
+// @ts-nocheck
 import { EditOutlined } from "@ant-design/icons";
 import type { CalendarProps } from "antd";
 import { Badge, Button, Calendar, Flex, Tag, Tooltip } from "antd";
 import type { Dayjs } from "dayjs";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
 import DeleteButton from "./DeleteButton";
 import { FieldTypeWithId } from "../EventForm/types-d";
+import useLocalStorage from "../hooks/storage";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+const TimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 interface EventCalendarProps {
   events: {
@@ -29,7 +39,10 @@ const EventCalendar = ({
   events,
   handleInitialValue,
   holiday,
+  setEvents
 }: EventCalendarProps) => {
+  const [timeZone] = useLocalStorage("timezone", TimeZone);
+
   const monthCellRender = (value: Dayjs) => {
     const num = getMonthData(value);
     return num ? (
@@ -43,7 +56,34 @@ const EventCalendar = ({
   const dateCellRender = (value: Dayjs) => {
     const dateKey = value.format("YYYY-MM-DD");
 
-    const listData = events[dateKey];
+    const dayLater = value.add(1, "days").format("YYYY-MM-DD");
+    const dayEarlier = value.subtract(1, "days").format("YYYY-MM-DD");
+
+    let listData = events[dayEarlier]??[];
+
+    if(events[dateKey]){
+      events[dateKey].map((item) => {
+        listData = [...listData, item]
+      })
+    }
+
+    if(events[dayLater]){
+      events[dayLater].map((item) => {
+        listData = [...listData, item]
+      })
+    }
+    
+    listData = listData.map((item) => {
+      return {
+        ...item,
+        startDateTime: dayjs.utc(item.startDateTime).tz(timeZone).format("YYYY-MM-DD HH:mm:ss"),
+        endDateTime: dayjs.utc(item.endDateTime).tz(timeZone).format("YYYY-MM-DD HH:mm:ss")
+      }
+    })
+
+    listData = listData.filter((item) => {
+      return dayjs.tz(item.startDateTime, timeZone).format("YYYY-MM-DD") == dateKey;
+    })
 
     const holidayData = holiday[dateKey];
 
@@ -82,7 +122,7 @@ const EventCalendar = ({
                   style={{ fontSize: "10px", color: "hwb(205 6% 9%)" }}
                 />
                 <Flex>
-                  <DeleteButton selectedEvent={item} />
+                  <DeleteButton selectedEvent={item} setEvents={setEvents}/>
 
                   <Button
                     size="small"

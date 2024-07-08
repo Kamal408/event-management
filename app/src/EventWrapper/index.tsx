@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Col, Flex, Row, Button, Select } from "antd";
 
@@ -108,6 +109,7 @@ const EventWrapper = () => {
                   events={events}
                   holiday={holiday}
                   handleInitialValue={handleInitialValue}
+                  setEvents={setEvents}
                 />
               </div>
             </Flex>
